@@ -19,6 +19,7 @@ asteroid_tiny_images = [pyglet.image.load(r'./images/meteorGrey_tiny' + str(i) +
 asteroid_all_images = asteroid_big_images + asteroid_med_images
 
 pressed_keys = set()
+#objects = []
 
 def key_press(symbol, modificator):
     if symbol == key.LEFT:
@@ -36,6 +37,19 @@ def key_stop(symbol, modificator):
     if symbol == key.UP:
         pressed_keys.discard('faster')
 
+def distance(a, b, wrap_size):
+    """Distance in one direction (x or y)"""
+    result = abs(a - b)
+    if result > wrap_size / 2:
+        result = wrap_size - result
+    return result
+
+def overlaps(a, b):
+    """Returns true iff two space objects overlap"""
+    distance_squared = (distance(a.x, b.x, window.width) ** 2 +
+                        distance(a.y, b.y, window.height) ** 2)
+    max_distance_squared = (a.radius + b.radius) ** 2
+    return distance_squared < max_distance_squared
 
 class SpaceObject:
     def __init__(self, x, y, x_speed, y_speed, rotation):
@@ -59,7 +73,30 @@ class SpaceObject:
             self.y = 0
         if self.y < 0:
             self.y = window.height
-        # moving sprite at the beginning of the window when it reaches the end of it
+
+    def draw_circle(self):
+        x = self.x
+        y = self.y
+        radius = (self.sprite.height + self.sprite.width)/4
+
+        iterations = 20
+        s = math.sin(2*math.pi / iterations)
+        c = math.cos(2*math.pi / iterations)
+
+        dx, dy = radius, 0
+
+        gl.glBegin(gl.GL_LINE_STRIP)
+        for i in range(iterations+1):
+            gl.glVertex2f(x+dx, y+dy)
+            dx, dy = (dx*c - dy*s), (dy*c + dx*s)
+        gl.glEnd()
+
+    def delete(self):
+        objects.remove(self)
+        self.sprite.delete()
+
+    # def hit_by_spaceship(self,object):
+    #     print(object,'hit')
 
 class Spaceship(SpaceObject):
     def details(self, image, batch):
@@ -70,6 +107,7 @@ class Spaceship(SpaceObject):
         image.anchor_x = image.width // 2
         image.anchor_y = image.height // 2
         self.sprite = pyglet.sprite.Sprite(image, batch = batch)
+        self.radius = (self.sprite.height + self.sprite.width)/4
         # self.sprite.x_speed = self.x_speed
         # self.sprite.y_speed = self.y_speed
 
@@ -81,6 +119,12 @@ class Spaceship(SpaceObject):
         if 'faster' in pressed_keys:
             self.x_speed += dt * ACCELERATION * math.cos(self.rotation)
             self.y_speed += dt * ACCELERATION * math.sin(self.rotation)
+        for object in objects:
+            if type(object) == Asteroid :
+                if overlaps(object,self) == True:
+                    self.delete()
+                    return
+                    # object.hit_by_spaceship(self)
         super().tick(dt)
 
 
@@ -92,6 +136,11 @@ class Asteroid(SpaceObject):
         image.anchor_x = image.width // 2
         image.anchor_y = image.height // 2
         self.sprite = pyglet.sprite.Sprite(image, batch = batch)
+        self.radius = (self.sprite.height + self.sprite.width)/4
+    # def hit_by_spaceship(self,object):
+    #     print('hit asteroid')
+    #     object.delete()
+    #     super().hit_by_spaceship(object)
 
 spaceship = Spaceship(window.width //2, window.height //2,1,1,math.pi/2)
 spaceship.details(player_image,batch)
@@ -121,14 +170,24 @@ def draw():
             batch.draw()
             # Restore remembered state (this cancels the glTranslatef)
             gl.glPopMatrix()
+    for object in objects:
+        object.draw_circle()
 
-    # batch.draw()
+
 
 window.push_handlers(
     on_draw=draw,
     on_key_press=key_press,
     on_key_release=key_stop,
 )
-for object in objects:
-    pyglet.clock.schedule(object.tick)
+#for object in objects:
+#    pyglet.clock.schedule(object.tick)
+
+def tick_all(dt):
+    for object in objects:
+        object.tick(dt)
+
+pyglet.clock.schedule(tick_all)
+
+
 pyglet.app.run()
