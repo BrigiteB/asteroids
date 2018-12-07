@@ -6,6 +6,7 @@ import random
 
 ROTATION_SPEED = 4  # radians per second
 ACCELERATION = 50
+LASER_SPEED = 90
 
 window = pyglet.window.Window()
 batch = pyglet.graphics.Batch()
@@ -16,7 +17,9 @@ asteroid_big_images = [pyglet.image.load(r'./images/meteorGrey_big' + str(i) + '
 asteroid_med_images = [pyglet.image.load(r'./images/meteorGrey_med' + str(i) + '.png') for i in range(1,3)]
 asteroid_small_images = [pyglet.image.load(r'./images/meteorGrey_small' + str(i) + '.png') for i in range(1,3)]
 asteroid_tiny_images = [pyglet.image.load(r'./images/meteorGrey_tiny' + str(i) + '.png') for i in range(1,3)]
-asteroid_all_images = asteroid_big_images + asteroid_med_images
+# asteroid_all_images = asteroid_big_images + asteroid_med_images
+laser_image = pyglet.image.load(r'./images/laserRed07.png')
+
 
 pressed_keys = set()
 #objects = []
@@ -28,6 +31,8 @@ def key_press(symbol, modificator):
         pressed_keys.add('right')
     if symbol == key.UP:
         pressed_keys.add('faster')
+    if symbol == key.SPACE:
+        pressed_keys.add('laser')
 
 def key_stop(symbol, modificator):
     if symbol == key.LEFT:
@@ -36,6 +41,8 @@ def key_stop(symbol, modificator):
         pressed_keys.discard('right')
     if symbol == key.UP:
         pressed_keys.discard('faster')
+    if symbol == key.SPACE:
+        pressed_keys.discard('laser')
 
 def distance(a, b, wrap_size):
     """Distance in one direction (x or y)"""
@@ -74,33 +81,29 @@ class SpaceObject:
         if self.y < 0:
             self.y = window.height
 
-    def draw_circle(self):
-        x = self.x
-        y = self.y
-        radius = (self.sprite.height + self.sprite.width)/4
-
-        iterations = 20
-        s = math.sin(2*math.pi / iterations)
-        c = math.cos(2*math.pi / iterations)
-
-        dx, dy = radius, 0
-
-        gl.glBegin(gl.GL_LINE_STRIP)
-        for i in range(iterations+1):
-            gl.glVertex2f(x+dx, y+dy)
-            dx, dy = (dx*c - dy*s), (dy*c + dx*s)
-        gl.glEnd()
+    # def draw_circle(self):
+    #     x = self.x
+    #     y = self.y
+    #     radius = (self.sprite.height + self.sprite.width)/4
+    #
+    #     iterations = 20
+    #     s = math.sin(2*math.pi / iterations)
+    #     c = math.cos(2*math.pi / iterations)
+    #
+    #     dx, dy = radius, 0
+    #
+    #     gl.glBegin(gl.GL_LINE_STRIP)
+    #     for i in range(iterations+1):
+    #         gl.glVertex2f(x+dx, y+dy)
+    #         dx, dy = (dx*c - dy*s), (dy*c + dx*s)
+    #     gl.glEnd()
 
     def delete(self):
         objects.remove(self)
         self.sprite.delete()
 
-    # def hit_by_spaceship(self,object):
-    #     print(object,'hit')
-
 class Spaceship(SpaceObject):
     def details(self, image, batch):
-        # self.window = window
         self.x = window.width //2
         self.y = window.height //2
         self.image = image
@@ -108,10 +111,10 @@ class Spaceship(SpaceObject):
         image.anchor_y = image.height // 2
         self.sprite = pyglet.sprite.Sprite(image, batch = batch)
         self.radius = (self.sprite.height + self.sprite.width)/4
-        # self.sprite.x_speed = self.x_speed
-        # self.sprite.y_speed = self.y_speed
+        self.shoot_limit = 0.3
 
     def tick(self,dt):
+        self.shoot_limit -= 1*dt
         if 'left' in pressed_keys:
             self.rotation = self.rotation + dt * ROTATION_SPEED
         if 'right' in pressed_keys:
@@ -119,37 +122,84 @@ class Spaceship(SpaceObject):
         if 'faster' in pressed_keys:
             self.x_speed += dt * ACCELERATION * math.cos(self.rotation)
             self.y_speed += dt * ACCELERATION * math.sin(self.rotation)
+        if ('laser' in pressed_keys) and (self.shoot_limit < 0):
+            self.shoot_limit = 0.3
+            laser = Laser(self.x,self.y, self.rotation, self.x_speed + 1,self.y_speed + 1)
+            laser.details(laser_image,batch)
+            objects.append(laser)
         for object in objects:
             if type(object) == Asteroid :
                 if overlaps(object,self) == True:
                     self.delete()
                     return
-                    # object.hit_by_spaceship(self)
         super().tick(dt)
 
 
 class Asteroid(SpaceObject):
-    def details(self, image, batch):
-        # self.x = 0
-        # self.y = window.height //2
+    def details(self, image, batch, level):
         self.image = image
         image.anchor_x = image.width // 2
         image.anchor_y = image.height // 2
         self.sprite = pyglet.sprite.Sprite(image, batch = batch)
         self.radius = (self.sprite.height + self.sprite.width)/4
-    # def hit_by_spaceship(self,object):
-    #     print('hit asteroid')
-    #     object.delete()
-    #     super().hit_by_spaceship(object)
+        self.level = level
+    def become_smaller(self):
+        if self.level == 0:
+            print('medium')
+            image_size = random.choice(asteroid_med_images)
+        elif self.level == 1:
+            print('small')
+            image_size = random.choice(asteroid_small_images)
+        elif self.level == 2:
+            print('tiny')
+            image_size = random.choice(asteroid_tiny_images)
+        else:
+            print('nothing')
+            return
+        self.level += 1
+        asteroid_1 = Asteroid(self.x, self.y,self.x_speed, -self.y_speed, self.rotation)
+        asteroid_2 = Asteroid(self.x, self.y, -self.x_speed, self.y_speed, self.rotation)
+        asteroid_1.details(image_size,batch,self.level)
+        asteroid_2.details(image_size,batch,self.level)
+        objects.append(asteroid_1)
+        objects.append(asteroid_2)
+
+
+class Laser(SpaceObject):
+    def __init__(self, x, y, rotation, x_speed, y_speed):
+        self.x = x
+        self.y = y
+        self.rotation = rotation
+        self.x_speed = LASER_SPEED * math.cos(self.rotation)
+        self.y_speed = LASER_SPEED * math.sin(self.rotation)
+        self.time = 0
+    def details(self, image, batch):
+        self.image = image
+        image.anchor_x = image.width // 2
+        image.anchor_y = image.height // 2
+        self.sprite = pyglet.sprite.Sprite(image, batch = batch)
+        self.radius = (image.height)/2
+    def tick(self, dt):
+        self.time += dt
+        if self.time >= 3:
+            self.delete()
+            return
+        for object in objects:
+            if type(object) == Asteroid :
+                if overlaps(object,self) == True:
+                    self.delete()
+                    object.become_smaller()
+                    object.delete()
+                    return
+        super().tick(dt)
+
 
 spaceship = Spaceship(window.width //2, window.height //2,1,1,math.pi/2)
 spaceship.details(player_image,batch)
-# spaceship2 = Spaceship(window.width /4, window.height /4,1,1,math.pi/4)
-# spaceship2.details(player_image2,batch)
 asteroid1 = Asteroid(window.width //2, 50, random.choice(speed_array),random.choice(speed_array),0)
-asteroid1.details(random.choice(asteroid_big_images),batch)
+asteroid1.details(random.choice(asteroid_big_images),batch,0)
 asteroid2 = Asteroid(50, window.height //2, random.choice(speed_array),-random.choice(speed_array),0)
-asteroid2.details(random.choice(asteroid_big_images),batch)
+asteroid2.details(random.choice(asteroid_big_images),batch,0)
 
 
 objects = [
@@ -170,8 +220,8 @@ def draw():
             batch.draw()
             # Restore remembered state (this cancels the glTranslatef)
             gl.glPopMatrix()
-    for object in objects:
-        object.draw_circle()
+    # for object in objects:
+    #     object.draw_circle()
 
 
 
